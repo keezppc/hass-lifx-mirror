@@ -83,6 +83,20 @@ not care whether the Mirror is on WiFi or Thread. Finding and reaching the Mirro
 job. If core reloads the Mirror, for example because its address changed, these lights
 reconnect within about five minutes.
 
+## License
+
+[MIT](LICENSE).
+
+## Acknowledgements
+
+- Started from [hass-lifx-ceiling](https://github.com/Djelibeybi/hass-lifx-ceiling) by
+  Avi Miller (MIT), which provided the project layout and tooling configuration.
+- The handling of color requests follows the approach of Home Assistant's core
+  [LIFX integration](https://github.com/home-assistant/core/tree/dev/homeassistant/components/lifx)
+  (Apache-2.0).
+- The Mirror itself is driven by [lifx-async](https://github.com/Djelibeybi/lifx-async)
+  (UPL-1.0), which Home Assistant installs for its LIFX integration.
+
 ## Development
 
 ```bash
