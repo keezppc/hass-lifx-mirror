@@ -1,0 +1,21 @@
+{
+  "domain": "lifx_mirror",
+  "name": "LIFX Mirror",
+  "codeowners": [
+    "@keezppc"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "lifx"
+  ],
+  "documentation": "https://github.com/keezppc/hass-lifx-mirror",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/keezppc/hass-lifx-mirror/issues",
+  "loggers": [
+    "lifx"
+  ],
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "2026.10.0"
+}

@@ -1,0 +1,61 @@
+{
+  "config": {
+    "step": {
+      "confirm": {
+        "description": "Do you want to set up independent front and back lights for your LIFX Mirror?"
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Already configured. Only a single configuration is possible.",
+      "no_devices_found": "No LIFX Mirror found. Add your Mirror to the LIFX integration first."
+    }
+  },
+  "services": {
+    "set_state": {
+      "name": "Set state",
+      "description": "Set the state of the LIFX Mirror frontlight and backlight independently. Set brightness to 0 to turn off a light.",
+      "fields": {
+        "device_id": {
+          "name": "Devices",
+          "description": "List of LIFX Mirror devices to target."
+        },
+        "transition": {
+          "name": "Transition",
+          "description": "Duration in seconds to transition to the new state."
+        },
+        "frontlight_hue": {
+          "name": "Frontlight hue",
+          "description": "Hue in degrees between 0 and 360."
+        },
+        "frontlight_saturation": {
+          "name": "Frontlight saturation",
+          "description": "Saturation in percent, where 0 is white and 100 is fully saturated."
+        },
+        "frontlight_brightness": {
+          "name": "Frontlight brightness",
+          "description": "Brightness in percent, where 0 is off and 100 is maximum."
+        },
+        "frontlight_kelvin": {
+          "name": "Frontlight kelvin",
+          "description": "Color temperature in Kelvin between 1500 and 9000."
+        },
+        "backlight_hue": {
+          "name": "Backlight hue",
+          "description": "Hue in degrees between 0 and 360."
+        },
+        "backlight_saturation": {
+          "name": "Backlight saturation",
+          "description": "Saturation in percent, where 0 is white and 100 is fully saturated."
+        },
+        "backlight_brightness": {
+          "name": "Backlight brightness",
+          "description": "Brightness in percent, where 0 is off and 100 is maximum."
+        },
+        "backlight_kelvin": {
+          "name": "Backlight kelvin",
+          "description": "Color temperature in Kelvin between 1500 and 9000."
+        }
+      }
+    }
+  }
+}

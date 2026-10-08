@@ -1,0 +1,6 @@
+{
+    "name": "LIFX Mirror",
+    "hide_default_branch": true,
+    "homeassistant": "2026.10.0",
+    "render_readme": true
+}
