@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to release, such as v2026.10.1
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - name: Check the manifest version matches the tag
+        run: |
+          version=$(jq -r .version custom_components/lifx_mirror/manifest.json)
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::manifest.json says $version, but the tag is $TAG"
+            exit 1
+          fi
+      - uses: astral-sh/setup-uv@v6
+      - name: Test
+        run: |
+          uv sync --locked --extra dev
+          uv run pytest
+      - name: Create the release
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "A release for $TAG already exists"
+            exit 0
+          fi
+          gh release create "$TAG" --verify-tag --title "${TAG#v}" --generate-notes
