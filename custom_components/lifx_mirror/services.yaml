@@ -108,7 +108,7 @@ set_zones:
       selector:
         object:
     theme:
-      example: evening
+      example: Warm Ember
       selector:
         text:
     transition:

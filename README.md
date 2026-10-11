@@ -112,8 +112,8 @@ data:
     - {start: 0, end: 33, hue: 30, saturation: 100, brightness: 20}
     - {start: 67, end: 100, kelvin: 2700, brightness: 60}
   ```
-- `theme`: the name of a LIFX theme, such as `evening` (case doesn't matter). The same
-  themes are in each light's effect list.
+- `theme`: a LIFX theme, by the name the light's effect list shows (`Warm Ember`) or its
+  key (`warm_ember`). Case doesn't matter.
 
 Each color takes `hue` (0–360), `saturation` (%), `brightness` (%) and `kelvin`, with the
 same defaults as `set_state`.

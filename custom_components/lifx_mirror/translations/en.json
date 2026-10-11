@@ -79,7 +79,7 @@
         },
         "theme": {
           "name": "Theme",
-          "description": "Name of a LIFX theme, such as evening or autumn."
+          "description": "A LIFX theme, by the name shown in the light's effect list (such as Warm Ember) or its key (such as warm_ember)."
         },
         "transition": {
           "name": "Transition",

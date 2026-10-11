@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
     from homeassistant.components.lifx.coordinator import LIFXUpdateCoordinator
     from homeassistant.core import HomeAssistant
+    from lifx.theme import Theme
 
 
 class HSBKChanges(TypedDict):
@@ -56,6 +57,19 @@ def theme_effects() -> dict[str, str]:
             continue
         effects[theme.name or key] = key
     return dict(sorted(effects.items(), key=lambda item: item[0].casefold()))
+
+
+def find_theme(name: str) -> Theme | None:
+    """Return the LIFX theme with this key or display name, ignoring case."""
+    try:
+        return ThemeLibrary.get(name)
+    except KeyError:
+        pass
+    wanted = name.strip().casefold()
+    for display_name, key in theme_effects().items():
+        if display_name.casefold() == wanted:
+            return ThemeLibrary.get(key)
+    return None
 
 
 def normalize_serial(value: str) -> str:
