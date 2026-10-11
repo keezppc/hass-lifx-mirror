@@ -12,7 +12,6 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from lifx import HSBK, LifxError, MirrorLight
-from lifx.theme import ThemeLibrary
 
 from .const import (
     _LOGGER,
@@ -38,9 +37,11 @@ from .const import (
 from .util import (
     async_schedule_refresh_after_command,
     find_mirror_coordinators,
+    find_theme,
     gradient_zones,
     normalize_serial,
     segment_zones,
+    theme_effects,
 )
 
 if TYPE_CHECKING:
@@ -249,12 +250,11 @@ class LIFXMirrorManager:
         component = data[ATTR_COMPONENT]
         theme = None
         if ATTR_THEME in data:
-            try:
-                theme = ThemeLibrary.get(data[ATTR_THEME])
-            except KeyError as err:
-                names = ", ".join(sorted(ThemeLibrary.get_available_themes()))
+            theme = find_theme(data[ATTR_THEME])
+            if theme is None:
+                names = ", ".join(theme_effects())
                 msg = f"Unknown theme {data[ATTR_THEME]!r}; choose one of: {names}"
-                raise ServiceValidationError(msg) from err
+                raise ServiceValidationError(msg)
 
         for device_id in data[ATTR_DEVICE_ID]:
             coordinator = self._coordinator_for_device(device_id)

@@ -416,7 +416,7 @@ async def test_set_zones_names_the_themes_when_one_is_unknown(registry) -> None:
     """An unknown theme is refused with the list of names to choose from."""
     manager, coordinator = _registered_manager(registry)
 
-    with pytest.raises(ServiceValidationError, match="Unknown theme.*evening"):
+    with pytest.raises(ServiceValidationError, match="Unknown theme.*Evening"):
         await manager.async_set_zones(_zones_call(component="front", theme="nope"))
 
     coordinator.device.apply_front_theme.assert_not_awaited()
@@ -446,3 +446,28 @@ async def test_set_zones_reports_a_device_failure(registry) -> None:
         await manager.async_set_zones(_zones_call(component="front", theme="evening"))
 
     coordinator.async_request_refresh.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "name", ["warm_ember", "Warm Ember", "warm ember", "WARM EMBER"]
+)
+@pytest.mark.asyncio
+async def test_set_zones_takes_a_theme_by_key_or_display_name(registry, name) -> None:
+    """A theme can be named as the effect list shows it, as well as by its key."""
+    manager, coordinator = _registered_manager(registry)
+
+    await manager.async_set_zones(_zones_call(component="front", theme=name))
+
+    theme = coordinator.device.apply_front_theme.await_args.args[0]
+    assert theme.palette_equals(ThemeLibrary.get("warm_ember"))
+
+
+@pytest.mark.asyncio
+async def test_set_zones_takes_a_display_name_with_punctuation(registry) -> None:
+    """Names whose key drops punctuation, like "Santa's Candy", still match."""
+    manager, coordinator = _registered_manager(registry)
+
+    await manager.async_set_zones(_zones_call(component="front", theme="Santa's Candy"))
+
+    theme = coordinator.device.apply_front_theme.await_args.args[0]
+    assert theme.palette_equals(ThemeLibrary.get("santas_candy"))
