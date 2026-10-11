@@ -78,3 +78,44 @@ set_state:
           min: 0
           max: 3600
           unit_of_measurement: seconds
+
+set_zones:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: lifx_mirror
+          multiple: true
+    component:
+      required: true
+      example: front
+      selector:
+        select:
+          options:
+            - front
+            - back
+    colors:
+      example: "[{hue: 0, saturation: 100, brightness: 50}, ...]"
+      selector:
+        object:
+    gradient:
+      example: "[{hue: 0, saturation: 100, brightness: 20}, {hue: 240, saturation: 100, brightness: 60}]"
+      selector:
+        object:
+    segments:
+      example: "[{start: 0, end: 33, hue: 30, saturation: 100, brightness: 20}]"
+      selector:
+        object:
+    theme:
+      example: evening
+      selector:
+        text:
+    transition:
+      default: 0
+      example: 1
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: seconds

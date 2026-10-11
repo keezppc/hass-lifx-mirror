@@ -18,7 +18,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from lifx import LifxError
 
 from .const import COMPONENT_BACK, COMPONENT_FRONT, DOMAIN
-from .util import async_schedule_refresh_after_command, hsbk_changes, merge_hsbk
+from .util import async_schedule_refresh_after_command, hsbk_changes, scale_zones
 
 if TYPE_CHECKING:
     from homeassistant.components.lifx.coordinator import LIFXUpdateCoordinator
@@ -62,6 +62,7 @@ class LIFXMirrorLight(CoordinatorEntity["LIFXUpdateCoordinator"], LightEntity):
 
     _attr_has_entity_name = True
     _attr_supported_features = LightEntityFeature.TRANSITION
+    _unrecorded_attributes = frozenset({"zones"})
 
     def __init__(self, coordinator: LIFXUpdateCoordinator, component: str) -> None:
         """Instantiate the light for one component of a Mirror."""
@@ -142,6 +143,21 @@ class LIFXMirrorLight(CoordinatorEntity["LIFXUpdateCoordinator"], LightEntity):
             return ColorMode.HS
         return ColorMode.COLOR_TEMP
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return every zone's color, in zone order."""
+        return {
+            "zones": [
+                {
+                    "hue": round(color.hue, 1),
+                    "saturation": round(color.saturation * 100, 1),
+                    "brightness": round(color.brightness * 100, 1),
+                    "kelvin": color.kelvin,
+                }
+                for color in self._colors
+            ]
+        }
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn this component on, restoring its last colors if none are given."""
         duration = float(kwargs.get(ATTR_TRANSITION, 0))
@@ -149,7 +165,7 @@ class LIFXMirrorLight(CoordinatorEntity["LIFXUpdateCoordinator"], LightEntity):
         color = (
             None
             if all(value is None for value in changes.values())
-            else merge_hsbk(self._colors[0], changes)
+            else scale_zones(self._colors, changes)
         )
         await self._async_command(f"turn_{self._component}_on", color, duration)
 
@@ -159,7 +175,7 @@ class LIFXMirrorLight(CoordinatorEntity["LIFXUpdateCoordinator"], LightEntity):
         await self._async_command(f"turn_{self._component}_off", None, duration)
 
     async def _async_command(
-        self, method: str, color: HSBK | None, duration: float
+        self, method: str, color: HSBK | list[HSBK] | None, duration: float
     ) -> None:
         """Send a command to the library, then read the result back."""
         try:

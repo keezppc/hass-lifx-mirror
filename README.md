@@ -45,7 +45,10 @@ Each Mirror gets two lights:
 Both support brightness, color temperature (1500–9000 K), hue/saturation and transitions.
 
 - Turning a light on with no options brings back the colors it last showed.
-- Choosing a color or brightness sets every zone of that light to one color.
+- Choosing a hue, saturation or color temperature recolors every zone; choosing a brightness
+  rescales the zones so the brightest takes it and the rest keep their share, so a gradient
+  dims without flattening.
+- Each light has a `zones` attribute listing its 25 zone colors (not stored in the recorder).
 - Turning one light off while the other is on only darkens that light. Turning off the last
   lit light powers the Mirror off.
 
@@ -75,6 +78,39 @@ data:
 
 `device_id` accepts a list, and may be either this integration's device or the Mirror's
 core LIFX device.
+
+## Action: `lifx_mirror.set_zones`
+
+Sets the individual zones of one light. Give exactly one of `colors`, `gradient`, `segments` or `theme`.
+
+```yaml
+action: lifx_mirror.set_zones
+data:
+  device_id: 0123456789abcdef0123456789abcdef
+  component: front
+  gradient:
+    - {hue: 30, saturation: 100, brightness: 10}
+    - {hue: 0, saturation: 0, brightness: 60, kelvin: 3000}
+  transition: 2
+```
+
+- `colors`: exactly 25 entries, in zone order (each light is a closed ring around the
+  Mirror's edge).
+- `gradient`: two or more colors spread evenly along the Mirror's length. Hues blend the
+  short way round. On a Mirror mounted horizontally with its buttons on the right, the first color is at the left end and the last at the right.
+- `segments`: stretches of the length, each with a `start` and `end` in percent (0 is the end
+  opposite the buttons, 100 the end with them) and a color. Zones outside every segment go
+  dark, and later segments win where they overlap.
+
+  ```yaml
+  segments:
+    - {start: 0, end: 33, hue: 30, saturation: 100, brightness: 20}
+    - {start: 67, end: 100, kelvin: 2700, brightness: 60}
+  ```
+- `theme`: the name of a LIFX theme, such as `evening`.
+
+Each color takes `hue` (0–360), `saturation` (%), `brightness` (%) and `kelvin`, with the
+same defaults as `set_state`.
 
 ## WiFi and Thread
 

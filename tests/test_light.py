@@ -11,6 +11,7 @@ import pytest
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP_KELVIN,
+    ATTR_HS_COLOR,
     ATTR_TRANSITION,
     ColorMode,
 )
@@ -158,7 +159,7 @@ async def test_turn_on_merges_the_request_onto_the_current_color() -> None:
     await entity.async_turn_on(**{ATTR_BRIGHTNESS: 51, ATTR_TRANSITION: 2})
 
     coordinator.device.turn_back_on.assert_awaited_once_with(
-        HSBK(hue=120, saturation=1, brightness=0.2, kelvin=3500), duration=2.0
+        [HSBK(hue=120, saturation=1, brightness=0.2, kelvin=3500)], duration=2.0
     )
     coordinator.device.turn_front_on.assert_not_awaited()
 
@@ -172,8 +173,47 @@ async def test_turn_on_color_temp_desaturates() -> None:
     await entity.async_turn_on(**{ATTR_COLOR_TEMP_KELVIN: 4000})
 
     coordinator.device.turn_back_on.assert_awaited_once_with(
-        HSBK(hue=120, saturation=0, brightness=1, kelvin=4000), duration=0.0
+        [HSBK(hue=120, saturation=0, brightness=1, kelvin=4000)], duration=0.0
     )
+
+
+@pytest.mark.asyncio
+async def test_dimming_keeps_the_zones_relative_brightness() -> None:
+    """A gradient dims as a whole instead of flattening to one colour."""
+    ramp = [GREEN.replace(brightness=1.0), GREEN.replace(brightness=0.5), DARK]
+    coordinator = _coordinator(front=ramp, back=[GREEN])
+    entity = LIFXMirrorLight(coordinator, COMPONENT_FRONT)
+
+    await entity.async_turn_on(**{ATTR_BRIGHTNESS: 128})
+
+    sent = coordinator.device.turn_front_on.await_args.args[0]
+    assert [round(c.brightness, 2) for c in sent] == [0.5, 0.25, 0.0]
+    assert all(c.hue == 120 for c in sent[:2])
+
+
+@pytest.mark.asyncio
+async def test_a_new_colour_keeps_each_zones_brightness() -> None:
+    """Changing hue recolours every zone but leaves the brightness profile."""
+    ramp = [GREEN.replace(brightness=1.0), GREEN.replace(brightness=0.4)]
+    coordinator = _coordinator(front=ramp, back=[GREEN])
+    entity = LIFXMirrorLight(coordinator, COMPONENT_FRONT)
+
+    await entity.async_turn_on(**{ATTR_HS_COLOR: (240, 50)})
+
+    sent = coordinator.device.turn_front_on.await_args.args[0]
+    assert [c.brightness for c in sent] == [1.0, 0.4]
+    assert all((c.hue, c.saturation) == (240, 0.5) for c in sent)
+
+
+def test_zones_attribute_is_not_recorded() -> None:
+    """Fifty colours per state change would flood the recorder."""
+    coordinator = _coordinator(front=[WARM], back=[GREEN])
+    entity = LIFXMirrorLight(coordinator, COMPONENT_BACK)
+
+    assert "zones" in entity._unrecorded_attributes
+    assert entity.extra_state_attributes["zones"] == [
+        {"hue": 120.0, "saturation": 100.0, "brightness": 100.0, "kelvin": 3500}
+    ]
 
 
 @pytest.mark.asyncio

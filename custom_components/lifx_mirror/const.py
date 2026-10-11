@@ -24,9 +24,19 @@ COMPONENT_BACK = "back"
 
 DEFAULT_KELVIN = 3500
 
+# Zones across the Mirror's Set64 buffer; a zone's row is its position // width
+MIRROR_WIDTH = 4
+
 # Seconds a Mirror needs to apply a command before a read-back shows the result
 STATE_SETTLE_DELAY = 0.3
 
 DISCOVERY_INTERVAL = timedelta(minutes=5)
 
 SERVICE_LIFX_MIRROR_SET_STATE = "set_state"
+SERVICE_LIFX_MIRROR_SET_ZONES = "set_zones"
+
+ATTR_COMPONENT = "component"
+ATTR_COLORS = "colors"
+ATTR_GRADIENT = "gradient"
+ATTR_THEME = "theme"
+ATTR_SEGMENTS = "segments"

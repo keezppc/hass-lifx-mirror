@@ -56,6 +56,40 @@
           "description": "Color temperature in Kelvin between 1500 and 9000."
         }
       }
+    },
+    "set_zones": {
+      "name": "Set zones",
+      "description": "Set the individual zones of the frontlight or backlight, using a list of colors, a gradient or colored segments along the Mirror's length, or a named theme. Give exactly one of colors, gradient, segments or theme.",
+      "fields": {
+        "device_id": {
+          "name": "Devices",
+          "description": "List of LIFX Mirror devices to target."
+        },
+        "component": {
+          "name": "Light",
+          "description": "Which light to set, front or back."
+        },
+        "colors": {
+          "name": "Colors",
+          "description": "One color per zone (25 for each light), each with optional hue (0-360), saturation (%), brightness (%) and kelvin."
+        },
+        "gradient": {
+          "name": "Gradient",
+          "description": "Two or more colors spread evenly along the Mirror's length, from the end opposite the buttons to the end with the buttons."
+        },
+        "theme": {
+          "name": "Theme",
+          "description": "Name of a LIFX theme, such as evening or autumn."
+        },
+        "transition": {
+          "name": "Transition",
+          "description": "Duration in seconds to transition to the new state."
+        },
+        "segments": {
+          "name": "Segments",
+          "description": "Stretches of the Mirror's length, each with a start and end in percent (0 is the end opposite the buttons, 100 the end with them) and a color. Zones outside every segment are turned dark."
+        }
+      }
     }
   }
 }

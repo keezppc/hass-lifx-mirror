@@ -8,10 +8,11 @@ import voluptuous as vol
 from homeassistant.components.light import ATTR_TRANSITION
 from homeassistant.const import ATTR_DEVICE_ID
 from homeassistant.core import callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from lifx import HSBK, LifxError, MirrorLight
+from lifx.theme import ThemeLibrary
 
 from .const import (
     _LOGGER,
@@ -19,10 +20,17 @@ from .const import (
     ATTR_BACKLIGHT_HUE,
     ATTR_BACKLIGHT_KELVIN,
     ATTR_BACKLIGHT_SATURATION,
+    ATTR_COLORS,
+    ATTR_COMPONENT,
     ATTR_FRONTLIGHT_BRIGHTNESS,
     ATTR_FRONTLIGHT_HUE,
     ATTR_FRONTLIGHT_KELVIN,
     ATTR_FRONTLIGHT_SATURATION,
+    ATTR_GRADIENT,
+    ATTR_SEGMENTS,
+    ATTR_THEME,
+    COMPONENT_BACK,
+    COMPONENT_FRONT,
     DEFAULT_KELVIN,
     DOMAIN,
     LIFX_DOMAIN,
@@ -30,7 +38,9 @@ from .const import (
 from .util import (
     async_schedule_refresh_after_command,
     find_mirror_coordinators,
+    gradient_zones,
     normalize_serial,
+    segment_zones,
 )
 
 if TYPE_CHECKING:
@@ -63,6 +73,55 @@ SET_STATE_SCHEMA = vol.Schema(
         ),
     }
 )
+
+_ZONE_COLOR = vol.Schema(
+    {
+        vol.Optional("hue", default=0): _HUE,
+        vol.Optional("saturation", default=0): _PERCENT,
+        vol.Optional("brightness", default=100): _PERCENT,
+        vol.Optional("kelvin", default=DEFAULT_KELVIN): _KELVIN,
+    }
+)
+
+_SEGMENT = _ZONE_COLOR.extend(
+    {
+        vol.Required("start"): _PERCENT,
+        vol.Required("end"): _PERCENT,
+    }
+)
+
+SET_ZONES_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Required(ATTR_DEVICE_ID): vol.All(cv.ensure_list, [cv.string]),
+            vol.Required(ATTR_COMPONENT): vol.In([COMPONENT_FRONT, COMPONENT_BACK]),
+            vol.Exclusive(ATTR_COLORS, "source"): vol.All(
+                cv.ensure_list, [_ZONE_COLOR]
+            ),
+            vol.Exclusive(ATTR_GRADIENT, "source"): vol.All(
+                cv.ensure_list, vol.Length(min=1), [_ZONE_COLOR]
+            ),
+            vol.Exclusive(ATTR_SEGMENTS, "source"): vol.All(
+                cv.ensure_list, vol.Length(min=1), [_SEGMENT]
+            ),
+            vol.Exclusive(ATTR_THEME, "source"): cv.string,
+            vol.Optional(ATTR_TRANSITION, default=0): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=3600)
+            ),
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_COLORS, ATTR_GRADIENT, ATTR_SEGMENTS, ATTR_THEME),
+)
+
+
+def _hsbk(zone: dict[str, Any]) -> HSBK:
+    """Return the color a service call's zone entry describes."""
+    return HSBK(
+        hue=zone["hue"],
+        saturation=zone["saturation"] / 100,
+        brightness=zone["brightness"] / 100,
+        kelvin=zone["kelvin"],
+    )
 
 
 def _service_color(
@@ -179,6 +238,80 @@ class LIFXMirrorManager:
                     await device.turn_front_off(duration=transition)
                 if back is None:
                     await device.turn_back_off(duration=transition)
+        except LifxError as err:
+            msg = f"{coordinator.data.label} did not accept the command: {err}"
+            raise HomeAssistantError(msg) from err
+        async_schedule_refresh_after_command(self.hass, coordinator, transition)
+
+    async def async_set_zones(self, call: ServiceCall) -> None:
+        """Handle the set_zones service call."""
+        data = call.data
+        component = data[ATTR_COMPONENT]
+        theme = None
+        if ATTR_THEME in data:
+            try:
+                theme = ThemeLibrary.get(data[ATTR_THEME])
+            except KeyError as err:
+                names = ", ".join(sorted(ThemeLibrary.get_available_themes()))
+                msg = f"Unknown theme {data[ATTR_THEME]!r}; choose one of: {names}"
+                raise ServiceValidationError(msg) from err
+
+        for device_id in data[ATTR_DEVICE_ID]:
+            coordinator = self._coordinator_for_device(device_id)
+            if coordinator is None:
+                _LOGGER.warning("No LIFX Mirror found for device ID %s", device_id)
+                continue
+            device = cast("MirrorLight", coordinator.device)
+            zone_count = getattr(device, f"{component}_zone_count")
+            positions = getattr(device, f"{component}_positions")
+            colors: list[HSBK] | None = None
+            if ATTR_COLORS in data:
+                if len(data[ATTR_COLORS]) != zone_count:
+                    msg = (
+                        f"The {component} light has {zone_count} zones, "
+                        f"but {len(data[ATTR_COLORS])} colors were given"
+                    )
+                    raise ServiceValidationError(msg)
+                colors = [_hsbk(zone) for zone in data[ATTR_COLORS]]
+            elif ATTR_GRADIENT in data:
+                colors = gradient_zones(
+                    positions, [_hsbk(z) for z in data[ATTR_GRADIENT]]
+                )
+            elif ATTR_SEGMENTS in data:
+                for segment in data[ATTR_SEGMENTS]:
+                    if segment["start"] >= segment["end"]:
+                        msg = "Each segment's start must be below its end"
+                        raise ServiceValidationError(msg)
+                colors = segment_zones(
+                    positions,
+                    [(z["start"], z["end"], _hsbk(z)) for z in data[ATTR_SEGMENTS]],
+                )
+            await self._async_apply_zones(
+                coordinator, component, colors, theme, data[ATTR_TRANSITION]
+            )
+
+    async def _async_apply_zones(
+        self,
+        coordinator: LIFXUpdateCoordinator,
+        component: str,
+        colors: list[HSBK] | None,
+        theme: Any,
+        transition: float,
+    ) -> None:
+        """Send per-zone colors or a theme to one component of a Mirror."""
+        device = cast("MirrorLight", coordinator.device)
+        try:
+            if theme is not None:
+                await getattr(device, f"apply_{component}_theme")(
+                    theme, power_on=True, duration=transition
+                )
+            else:
+                if all(color.brightness == 0 for color in colors or []):
+                    msg = "At least one zone must have a brightness above 0"
+                    raise ServiceValidationError(msg)
+                await getattr(device, f"turn_{component}_on")(
+                    colors, duration=transition
+                )
         except LifxError as err:
             msg = f"{coordinator.data.label} did not accept the command: {err}"
             raise HomeAssistantError(msg) from err

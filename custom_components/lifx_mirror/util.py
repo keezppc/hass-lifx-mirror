@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
@@ -15,7 +15,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.event import async_call_later
 from lifx import HSBK, MirrorLight
 
-from .const import DEFAULT_KELVIN, LIFX_DOMAIN, STATE_SETTLE_DELAY
+from .const import DEFAULT_KELVIN, LIFX_DOMAIN, MIRROR_WIDTH, STATE_SETTLE_DELAY
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -87,6 +87,91 @@ def merge_hsbk(base: HSBK, changes: HSBKChanges) -> HSBK:
         msg = f"Invalid color: {err}"
         raise ServiceValidationError(msg) from err
     return merged
+
+
+def scale_zones(colors: list[HSBK], changes: HSBKChanges) -> list[HSBK]:
+    """
+    Apply requested changes to every zone, keeping the zones' brightness profile.
+
+    A new hue, saturation or kelvin replaces that part of every zone. A new
+    brightness becomes the brightest zone's brightness and the other zones keep
+    their share of it, so a gradient dims without flattening. A component that is
+    dark comes on at the requested brightness, or at full, in every zone.
+    """
+    peak = max(color.brightness for color in colors)
+    brightness = changes["brightness"]
+    colour_only = {key: value for key, value in changes.items() if key != "brightness"}
+    if peak == 0:
+        base = {**colour_only, "brightness": 1.0 if brightness is None else brightness}
+        return [merge_hsbk(color, cast("HSBKChanges", base)) for color in colors]
+    zones: list[HSBK] = []
+    for color in colors:
+        zone = {**colour_only}
+        if brightness is not None:
+            zone["brightness"] = color.brightness / peak * brightness
+        zones.append(merge_hsbk_keep_dark(color, cast("HSBKChanges", zone)))
+    return zones
+
+
+def merge_hsbk_keep_dark(base: HSBK, changes: HSBKChanges) -> HSBK:
+    """Apply changes to one zone, leaving a dark zone dark."""
+    try:
+        return base.replace(**changes)
+    except ValueError as err:
+        msg = f"Invalid color: {err}"
+        raise ServiceValidationError(msg) from err
+
+
+def gradient_zones(positions: tuple[int, ...], stops: list[HSBK]) -> list[HSBK]:
+    """
+    Spread colour stops evenly along the Mirror's length, one colour per zone.
+
+    The Mirror's buffer is 4 wide and 13 tall; a zone's row is its position along
+    the long axis, and both sides of the capsule at the same row share a colour.
+    Hues blend along the shorter way round the colour wheel.
+    """
+    if len(stops) == 1:
+        return [stops[0]] * len(positions)
+    last_row = max(position // MIRROR_WIDTH for position in positions) or 1
+    zones: list[HSBK] = []
+    for position in positions:
+        along = position // MIRROR_WIDTH / last_row * (len(stops) - 1)
+        index = min(int(along), len(stops) - 2)
+        zones.append(_blend(stops[index], stops[index + 1], along - index))
+    return zones
+
+
+def segment_zones(
+    positions: tuple[int, ...], segments: list[tuple[float, float, HSBK]]
+) -> list[HSBK]:
+    """
+    Colour stretches of the Mirror's length, leaving the rest dark.
+
+    Each segment covers a start to an end in percent along the length, from the
+    end opposite the buttons (0) to the end with the buttons (100). A zone belongs
+    to a segment when the middle of its row falls within it, so a third of the
+    length is a third of the rows. Later segments win where they overlap.
+    """
+    rows = max(position // MIRROR_WIDTH for position in positions) + 1
+    dark = HSBK(hue=0, saturation=0, brightness=0, kelvin=DEFAULT_KELVIN)
+    zones = [dark] * len(positions)
+    for index, position in enumerate(positions):
+        along = (position // MIRROR_WIDTH + 0.5) / rows * 100
+        for start, end, color in segments:
+            if start <= along < end:
+                zones[index] = color
+    return zones
+
+
+def _blend(start: HSBK, end: HSBK, fraction: float) -> HSBK:
+    """Return the colour a fraction of the way from start to end."""
+    arc = (end.hue - start.hue + 180) % 360 - 180
+    return HSBK(
+        hue=(start.hue + arc * fraction) % 360,
+        saturation=start.saturation + (end.saturation - start.saturation) * fraction,
+        brightness=start.brightness + (end.brightness - start.brightness) * fraction,
+        kelvin=round(start.kelvin + (end.kelvin - start.kelvin) * fraction),
+    )
 
 
 async def _async_refresh_after_command(
