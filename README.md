@@ -51,8 +51,9 @@ Both support brightness, color temperature (1500–9000 K), hue/saturation and t
 - Each light's effect list holds the LIFX themes (Evening, Autumn, Galaxy and so on).
   Choosing one paints that light with the theme's palette and leaves the other light alone.
   A theme is a one-off set of colors, not a running animation, so the light reports no
-  current effect afterwards. Other options sent with an effect, such as brightness, are
-  ignored. The core LIFX light's effects (colorloop, pulse and the rest) are not offered here.
+  current effect afterwards. A brightness sent with an effect scales the theme so its
+  brightest zone takes that brightness; other options, such as a color, are ignored. The
+  core LIFX light's effects (colorloop, pulse and the rest) are not offered here.
 - Each light has a `zones` attribute listing its 25 zone colors (not stored in the recorder).
 - Turning one light off while the other is on only darkens that light. Turning off the last
   lit light powers the Mirror off.
@@ -86,7 +87,8 @@ core LIFX device.
 
 ## Action: `lifx_mirror.set_zones`
 
-Sets the individual zones of one light. Give exactly one of `colors`, `gradient`, `segments` or `theme`.
+Sets the individual zones of one light. Give exactly one of `colors`, `gradient`, `segments`
+or `theme`.
 
 ```yaml
 action: lifx_mirror.set_zones
@@ -102,7 +104,8 @@ data:
 - `colors`: exactly 25 entries, in zone order (each light is a closed ring around the
   Mirror's edge).
 - `gradient`: two or more colors spread evenly along the Mirror's length. Hues blend the
-  short way round. On a Mirror mounted horizontally with its buttons on the right, the first color is at the left end and the last at the right.
+  short way round. On a Mirror mounted horizontally with its buttons on the right, the first
+  color is at the left end and the last at the right.
 - `segments`: stretches of the length, each with a `start` and `end` in percent (0 is the end
   opposite the buttons, 100 the end with them) and a color. Zones outside every segment go
   dark, and later segments win where they overlap.
