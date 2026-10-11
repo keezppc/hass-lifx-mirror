@@ -5,26 +5,34 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.components.light import (
+    ATTR_EFFECT,
     ATTR_TRANSITION,
     ColorMode,
     LightEntity,
     LightEntityFeature,
 )
 from homeassistant.core import callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo, format_mac
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from lifx import LifxError
+from lifx.theme import ThemeLibrary
 
 from .const import COMPONENT_BACK, COMPONENT_FRONT, DOMAIN
-from .util import async_schedule_refresh_after_command, hsbk_changes, scale_zones
+from .util import (
+    async_schedule_refresh_after_command,
+    hsbk_changes,
+    scale_zones,
+    theme_effects,
+)
 
 if TYPE_CHECKING:
     from homeassistant.components.lifx.coordinator import LIFXUpdateCoordinator
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
     from lifx import HSBK, MirrorLight, MirrorLightState
+    from lifx.theme import Theme
 
     from .manager import LIFXMirrorConfigEntry
 
@@ -61,7 +69,7 @@ class LIFXMirrorLight(CoordinatorEntity["LIFXUpdateCoordinator"], LightEntity):
     """One lighting component, front or back, of a LIFX Mirror."""
 
     _attr_has_entity_name = True
-    _attr_supported_features = LightEntityFeature.TRANSITION
+    _attr_supported_features = LightEntityFeature.TRANSITION | LightEntityFeature.EFFECT
     _unrecorded_attributes = frozenset({"zones"})
 
     def __init__(self, coordinator: LIFXUpdateCoordinator, component: str) -> None:
@@ -69,6 +77,8 @@ class LIFXMirrorLight(CoordinatorEntity["LIFXUpdateCoordinator"], LightEntity):
         super().__init__(coordinator)
         self._component = component
         self._attr_supported_color_modes = {ColorMode.COLOR_TEMP, ColorMode.HS}
+        # A theme is a one-off palette, not a running effect, so none is ever current
+        self._attr_effect_list = list(theme_effects())
 
         state = coordinator.data
         mac = format_mac(state.serial)
@@ -161,6 +171,9 @@ class LIFXMirrorLight(CoordinatorEntity["LIFXUpdateCoordinator"], LightEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn this component on, restoring its last colors if none are given."""
         duration = float(kwargs.get(ATTR_TRANSITION, 0))
+        if ATTR_EFFECT in kwargs:
+            await self._async_apply_theme(kwargs[ATTR_EFFECT], duration)
+            return
         changes = hsbk_changes(**kwargs)
         color = (
             None
@@ -174,12 +187,29 @@ class LIFXMirrorLight(CoordinatorEntity["LIFXUpdateCoordinator"], LightEntity):
         duration = float(kwargs.get(ATTR_TRANSITION, 0))
         await self._async_command(f"turn_{self._component}_off", None, duration)
 
+    async def _async_apply_theme(self, effect: str, duration: float) -> None:
+        """Paint this component with the LIFX theme an effect name stands for."""
+        key = theme_effects().get(effect)
+        if key is None:
+            msg = f"Unknown effect {effect!r}; choose one of this light's effects"
+            raise ServiceValidationError(msg)
+        await self._async_command(
+            f"apply_{self._component}_theme",
+            ThemeLibrary.get(key),
+            duration,
+            power_on=True,
+        )
+
     async def _async_command(
-        self, method: str, color: HSBK | list[HSBK] | None, duration: float
+        self,
+        method: str,
+        argument: HSBK | list[HSBK] | Theme | None,
+        duration: float,
+        **options: Any,
     ) -> None:
         """Send a command to the library, then read the result back."""
         try:
-            await getattr(self._device, method)(color, duration=duration)
+            await getattr(self._device, method)(argument, duration=duration, **options)
         except LifxError as err:
             msg = f"{self._state.label} did not accept the command: {err}"
             raise HomeAssistantError(msg) from err

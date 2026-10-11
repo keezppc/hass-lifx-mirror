@@ -11,15 +11,18 @@ import pytest
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP_KELVIN,
+    ATTR_EFFECT,
     ATTR_HS_COLOR,
     ATTR_TRANSITION,
     ColorMode,
+    LightEntityFeature,
 )
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
 pytest.importorskip("lifx")
 
 from lifx import HSBK, LifxError
+from lifx.theme import ThemeLibrary
 
 from custom_components.lifx_mirror import util as util_module
 from custom_components.lifx_mirror.const import (
@@ -76,6 +79,8 @@ def _coordinator(
             turn_front_off=AsyncMock(),
             turn_back_on=AsyncMock(),
             turn_back_off=AsyncMock(),
+            apply_front_theme=AsyncMock(),
+            apply_back_theme=AsyncMock(),
         ),
         async_request_refresh=AsyncMock(),
         async_refresh=AsyncMock(),
@@ -369,3 +374,50 @@ async def test_the_read_back_runs_in_its_own_task(fake_hass: FakeHass) -> None:
 
     assert ran_in
     assert ran_in[0] is not caller
+
+
+def test_themes_are_offered_as_effects() -> None:
+    """Each light lists the current LIFX themes by name, without retired ones."""
+    entity = LIFXMirrorLight(_coordinator(front=[WARM], back=[GREEN]), COMPONENT_FRONT)
+
+    assert entity.supported_features & LightEntityFeature.EFFECT
+    assert "Evening" in entity.effect_list
+    assert "Warm Ember" in entity.effect_list
+    # "Fire" was replaced by "Warm Ember"; "Aurora" must not appear twice
+    assert "Fire" not in entity.effect_list
+    assert entity.effect_list.count("Aurora") == 1
+    assert entity.effect_list == sorted(entity.effect_list, key=str.casefold)
+    assert entity.effect is None
+
+
+@pytest.mark.asyncio
+async def test_choosing_an_effect_paints_the_theme_on_this_light(
+    fake_hass: FakeHass,
+) -> None:
+    """A theme lands on this component only, with the requested transition."""
+    coordinator = _coordinator(front=[WARM], back=[GREEN])
+    entity = LIFXMirrorLight(coordinator, COMPONENT_BACK)
+
+    await entity.async_turn_on(**{ATTR_EFFECT: "Evening", ATTR_TRANSITION: 2})
+    await fake_hass.drain()
+
+    apply = coordinator.device.apply_back_theme
+    apply.assert_awaited_once()
+    assert apply.await_args.args[0].palette_equals(ThemeLibrary.get("evening"))
+    assert apply.await_args.kwargs == {"duration": 2.0, "power_on": True}
+    coordinator.device.apply_front_theme.assert_not_awaited()
+    coordinator.device.turn_back_on.assert_not_awaited()
+    coordinator.async_request_refresh.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_effect_is_refused() -> None:
+    """An effect outside the list is an error and nothing is sent."""
+    coordinator = _coordinator(front=[WARM], back=[GREEN])
+    entity = LIFXMirrorLight(coordinator, COMPONENT_FRONT)
+
+    with pytest.raises(ServiceValidationError, match="Unknown effect"):
+        await entity.async_turn_on(**{ATTR_EFFECT: "colorloop"})
+
+    coordinator.device.apply_front_theme.assert_not_awaited()
+    coordinator.device.turn_front_on.assert_not_awaited()

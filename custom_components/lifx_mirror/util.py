@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from functools import cache
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from homeassistant.components.light import (
@@ -14,6 +15,7 @@ from homeassistant.core import callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.event import async_call_later
 from lifx import HSBK, MirrorLight
+from lifx.theme import ThemeLibrary
 
 from .const import DEFAULT_KELVIN, LIFX_DOMAIN, MIRROR_WIDTH, STATE_SETTLE_DELAY
 
@@ -41,6 +43,19 @@ def find_mirror_coordinators(hass: HomeAssistant) -> list[LIFXUpdateCoordinator]
         if isinstance(getattr(coordinator, "device", None), MirrorLight):
             coordinators.append(coordinator)
     return coordinators
+
+
+@cache
+def theme_effects() -> dict[str, str]:
+    """Return the LIFX themes offered as light effects, from display name to key."""
+    effects: dict[str, str] = {}
+    for key in ThemeLibrary.get_available_themes():
+        theme = ThemeLibrary.get(key)
+        # Retired themes duplicate a current one, so they would only clutter the list
+        if theme.disposition in ("deprecated", "renamed"):
+            continue
+        effects[theme.name or key] = key
+    return dict(sorted(effects.items(), key=lambda item: item[0].casefold()))
 
 
 def normalize_serial(value: str) -> str:

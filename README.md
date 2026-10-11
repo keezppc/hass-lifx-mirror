@@ -48,6 +48,11 @@ Both support brightness, color temperature (1500–9000 K), hue/saturation and t
 - Choosing a hue, saturation or color temperature recolors every zone; choosing a brightness
   rescales the zones so the brightest takes it and the rest keep their share, so a gradient
   dims without flattening.
+- Each light's effect list holds the LIFX themes (Evening, Autumn, Galaxy and so on).
+  Choosing one paints that light with the theme's palette and leaves the other light alone.
+  A theme is a one-off set of colors, not a running animation, so the light reports no
+  current effect afterwards. Other options sent with an effect, such as brightness, are
+  ignored. The core LIFX light's effects (colorloop, pulse and the rest) are not offered here.
 - Each light has a `zones` attribute listing its 25 zone colors (not stored in the recorder).
 - Turning one light off while the other is on only darkens that light. Turning off the last
   lit light powers the Mirror off.
@@ -107,7 +112,8 @@ data:
     - {start: 0, end: 33, hue: 30, saturation: 100, brightness: 20}
     - {start: 67, end: 100, kelvin: 2700, brightness: 60}
   ```
-- `theme`: the name of a LIFX theme, such as `evening`.
+- `theme`: the name of a LIFX theme, such as `evening` (case doesn't matter). The same
+  themes are in each light's effect list.
 
 Each color takes `hue` (0–360), `saturation` (%), `brightness` (%) and `kelvin`, with the
 same defaults as `set_state`.
