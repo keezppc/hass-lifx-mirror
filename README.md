@@ -178,4 +178,5 @@ uv run ruff format --check .
 uv run pytest
 ```
 
-The tests use plain fakes and do not need a Mirror or a running Home Assistant.
+The tests use plain fakes and do not need a Mirror or a running Home Assistant. GitHub
+Actions runs the same checks on every pull request and on each push to `main`.
