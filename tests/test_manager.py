@@ -20,6 +20,8 @@ from custom_components.lifx_mirror.manager import (
     LIFXMirrorManager,
 )
 
+from .fakes import FakeHass
+
 SERIAL = "d073d5000001"
 
 
@@ -54,11 +56,10 @@ def _coordinator(serial: str = SERIAL) -> SimpleNamespace:
 def _manager(*coordinators: SimpleNamespace) -> LIFXMirrorManager:
     """Return a manager whose hass reports the given loaded LIFX entries."""
     entries = [SimpleNamespace(runtime_data=c) for c in coordinators]
-    hass = SimpleNamespace(
-        config_entries=SimpleNamespace(
-            async_loaded_entries=lambda _domain: entries,
-            async_schedule_reload=MagicMock(),
-        )
+    hass = FakeHass()
+    hass.config_entries = SimpleNamespace(
+        async_loaded_entries=lambda _domain: entries,
+        async_schedule_reload=MagicMock(),
     )
     entry = SimpleNamespace(entry_id="mirror-entry")
     return LIFXMirrorManager(hass, entry), entries
@@ -147,6 +148,8 @@ async def test_set_state_lights_both_components(registry) -> None:
             transition=2,
         )
     )
+
+    await manager.hass.drain()
 
     device = coordinator.device
     device.turn_front_on.assert_awaited_once_with(

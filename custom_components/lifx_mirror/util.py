@@ -10,6 +10,7 @@ from homeassistant.components.light import (
     ATTR_COLOR_TEMP_KELVIN,
     ATTR_HS_COLOR,
 )
+from homeassistant.core import callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.event import async_call_later
 from lifx import HSBK, MirrorLight
@@ -88,16 +89,10 @@ def merge_hsbk(base: HSBK, changes: HSBKChanges) -> HSBK:
     return merged
 
 
-async def async_refresh_after_command(
+async def _async_refresh_after_command(
     hass: HomeAssistant, coordinator: LIFXUpdateCoordinator, duration: float
 ) -> None:
-    """
-    Read a Mirror back once the state it was just given has settled.
-
-    A read straight after a command still returns the state from before it, which
-    makes the lights flap, so the read waits. A transition is read again when it
-    ends, as the state at its start is not where it finishes.
-    """
+    """Read a Mirror back once the state it was just given has settled."""
     await asyncio.sleep(STATE_SETTLE_DELAY)
     await coordinator.async_request_refresh()
 
@@ -107,3 +102,25 @@ async def async_refresh_after_command(
             await coordinator.async_refresh()
 
         async_call_later(hass, duration, _async_refresh)
+
+
+@callback
+def async_schedule_refresh_after_command(
+    hass: HomeAssistant, coordinator: LIFXUpdateCoordinator, duration: float
+) -> None:
+    """
+    Read a Mirror back after a command, without tying the read to the caller.
+
+    A read straight after a command still returns the state from before it, which
+    makes the lights flap, so the read waits. A transition is read again when it
+    ends, as the state at its start is not where it finishes.
+
+    The read runs as its own task because Home Assistant marks the whole
+    connection failed when a task is cancelled inside a refresh, which makes every
+    light on it unavailable until the next poll. An automation in restart mode
+    cancels its previous run, and that run must not be the one doing the refresh.
+    """
+    hass.async_create_background_task(
+        _async_refresh_after_command(hass, coordinator, duration),
+        name="lifx_mirror refresh after command",
+    )

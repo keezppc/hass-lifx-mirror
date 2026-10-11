@@ -28,7 +28,7 @@ from .const import (
     LIFX_DOMAIN,
 )
 from .util import (
-    async_refresh_after_command,
+    async_schedule_refresh_after_command,
     find_mirror_coordinators,
     normalize_serial,
 )
@@ -182,4 +182,4 @@ class LIFXMirrorManager:
         except LifxError as err:
             msg = f"{coordinator.data.label} did not accept the command: {err}"
             raise HomeAssistantError(msg) from err
-        await async_refresh_after_command(self.hass, coordinator, transition)
+        async_schedule_refresh_after_command(self.hass, coordinator, transition)

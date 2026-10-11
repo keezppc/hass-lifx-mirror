@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -26,6 +27,8 @@ from custom_components.lifx_mirror.const import (
 )
 from custom_components.lifx_mirror.light import LIFXMirrorLight
 
+from .fakes import FakeHass
+
 
 @pytest.fixture(autouse=True)
 def fast_settle(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
@@ -34,6 +37,14 @@ def fast_settle(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     timer = MagicMock()
     monkeypatch.setattr(util_module, "async_call_later", timer)
     return timer
+
+
+@pytest.fixture(autouse=True)
+def fake_hass(monkeypatch: pytest.MonkeyPatch) -> FakeHass:
+    """Give every light the same stand-in Home Assistant."""
+    hass = FakeHass()
+    monkeypatch.setattr(LIFXMirrorLight, "hass", hass, raising=False)
+    return hass
 
 
 WARM = HSBK(hue=30, saturation=0, brightness=0.5, kelvin=2700)
@@ -124,12 +135,15 @@ def test_powered_off_mirror_is_off_for_both_components() -> None:
 
 
 @pytest.mark.asyncio
-async def test_turn_on_without_options_restores_the_previous_colors() -> None:
+async def test_turn_on_without_options_restores_the_previous_colors(
+    fake_hass: FakeHass,
+) -> None:
     """Passing no color lets the library bring back what the light last showed."""
     coordinator = _coordinator(front=[WARM], back=[GREEN])
     entity = LIFXMirrorLight(coordinator, COMPONENT_FRONT)
 
     await entity.async_turn_on()
+    await fake_hass.drain()
 
     coordinator.device.turn_front_on.assert_awaited_once_with(None, duration=0.0)
     coordinator.async_request_refresh.assert_awaited_once()
@@ -175,7 +189,9 @@ async def test_turn_off_targets_only_this_component() -> None:
 
 
 @pytest.mark.asyncio
-async def test_device_failure_becomes_a_home_assistant_error() -> None:
+async def test_device_failure_becomes_a_home_assistant_error(
+    fake_hass: FakeHass,
+) -> None:
     """A Mirror that does not answer is reported rather than raised raw."""
     coordinator = _coordinator(front=[WARM], back=[GREEN])
     coordinator.device.turn_front_off.side_effect = LifxError("no reply")
@@ -184,6 +200,7 @@ async def test_device_failure_becomes_a_home_assistant_error() -> None:
     with pytest.raises(HomeAssistantError, match="did not accept"):
         await entity.async_turn_off()
 
+    assert fake_hass.tasks == []
     coordinator.async_request_refresh.assert_not_awaited()
 
 
@@ -218,7 +235,7 @@ async def test_a_mirror_on_thread_reads_and_commands_without_wifi_data() -> None
 
 @pytest.mark.asyncio
 async def test_state_is_read_back_only_after_the_mirror_settles(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, fake_hass: FakeHass
 ) -> None:
     """Reading straight after a command returns the old state and makes lights flap."""
     monkeypatch.setattr(util_module, "STATE_SETTLE_DELAY", 0.3)
@@ -233,20 +250,21 @@ async def test_state_is_read_back_only_after_the_mirror_settles(
 
     started = time.monotonic()
     await entity.async_turn_on()
+    await fake_hass.drain()
 
     assert refreshed_at[0] - started >= 0.25
 
 
 @pytest.mark.asyncio
 async def test_a_transition_is_read_again_when_it_ends(
-    fast_settle: MagicMock,
+    fast_settle: MagicMock, fake_hass: FakeHass
 ) -> None:
     """The state at the start of a fade is not where it finishes."""
     coordinator = _coordinator(front=[WARM], back=[GREEN])
     entity = LIFXMirrorLight(coordinator, COMPONENT_FRONT)
-    entity.hass = SimpleNamespace()
 
     await entity.async_turn_on(**{ATTR_TRANSITION: 5})
+    await fake_hass.drain()
 
     fast_settle.assert_called_once()
     hass, delay, action = fast_settle.call_args.args
@@ -258,12 +276,56 @@ async def test_a_transition_is_read_again_when_it_ends(
 
 @pytest.mark.asyncio
 async def test_a_command_without_transition_needs_no_second_read(
-    fast_settle: MagicMock,
+    fast_settle: MagicMock, fake_hass: FakeHass
 ) -> None:
     """Only a fade needs a read when it ends."""
     coordinator = _coordinator(front=[WARM], back=[GREEN])
     entity = LIFXMirrorLight(coordinator, COMPONENT_FRONT)
 
     await entity.async_turn_on()
+    await fake_hass.drain()
 
     fast_settle.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_command_does_not_wait_for_the_read_back(
+    fake_hass: FakeHass,
+) -> None:
+    """A caller cancelled mid-read would mark the whole connection failed."""
+    coordinator = _coordinator(front=[WARM], back=[GREEN])
+    release = asyncio.Event()
+
+    async def _slow_refresh() -> None:
+        await release.wait()
+
+    coordinator.async_request_refresh = _slow_refresh
+    entity = LIFXMirrorLight(coordinator, COMPONENT_FRONT)
+
+    await asyncio.wait_for(entity.async_turn_on(), timeout=1)
+
+    assert not release.is_set()
+    assert len(fake_hass.tasks) == 1
+    assert not fake_hass.tasks[0].done()
+    release.set()
+    await fake_hass.drain()
+
+
+@pytest.mark.asyncio
+async def test_the_read_back_runs_in_its_own_task(fake_hass: FakeHass) -> None:
+    """Cancelling the caller, as a restarted automation does, cannot reach it."""
+    coordinator = _coordinator(front=[WARM], back=[GREEN])
+    ran_in: list[asyncio.Task | None] = []
+
+    async def _record_task() -> None:
+        ran_in.append(asyncio.current_task())
+
+    coordinator.async_request_refresh = _record_task
+    entity = LIFXMirrorLight(coordinator, COMPONENT_FRONT)
+    caller = asyncio.current_task()
+
+    await entity.async_turn_on()
+    await fake_hass.drain()
+
+    assert ran_in
+    assert ran_in[0] is not caller

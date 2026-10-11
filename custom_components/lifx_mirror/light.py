@@ -18,7 +18,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from lifx import LifxError
 
 from .const import COMPONENT_BACK, COMPONENT_FRONT, DOMAIN
-from .util import async_refresh_after_command, hsbk_changes, merge_hsbk
+from .util import async_schedule_refresh_after_command, hsbk_changes, merge_hsbk
 
 if TYPE_CHECKING:
     from homeassistant.components.lifx.coordinator import LIFXUpdateCoordinator
@@ -167,4 +167,4 @@ class LIFXMirrorLight(CoordinatorEntity["LIFXUpdateCoordinator"], LightEntity):
         except LifxError as err:
             msg = f"{self._state.label} did not accept the command: {err}"
             raise HomeAssistantError(msg) from err
-        await async_refresh_after_command(self.hass, self.coordinator, duration)
+        async_schedule_refresh_after_command(self.hass, self.coordinator, duration)
