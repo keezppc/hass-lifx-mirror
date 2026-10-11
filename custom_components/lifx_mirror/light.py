@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.components.light import (
+    ATTR_BRIGHTNESS,
     ATTR_EFFECT,
     ATTR_TRANSITION,
     ColorMode,
@@ -25,6 +26,7 @@ from .util import (
     hsbk_changes,
     scale_zones,
     theme_effects,
+    theme_zones,
 )
 
 if TYPE_CHECKING:
@@ -172,7 +174,7 @@ class LIFXMirrorLight(CoordinatorEntity["LIFXUpdateCoordinator"], LightEntity):
         """Turn this component on, restoring its last colors if none are given."""
         duration = float(kwargs.get(ATTR_TRANSITION, 0))
         if ATTR_EFFECT in kwargs:
-            await self._async_apply_theme(kwargs[ATTR_EFFECT], duration)
+            await self._async_apply_theme(kwargs[ATTR_EFFECT], duration, kwargs)
             return
         changes = hsbk_changes(**kwargs)
         color = (
@@ -187,17 +189,26 @@ class LIFXMirrorLight(CoordinatorEntity["LIFXUpdateCoordinator"], LightEntity):
         duration = float(kwargs.get(ATTR_TRANSITION, 0))
         await self._async_command(f"turn_{self._component}_off", None, duration)
 
-    async def _async_apply_theme(self, effect: str, duration: float) -> None:
+    async def _async_apply_theme(
+        self, effect: str, duration: float, kwargs: dict[str, Any]
+    ) -> None:
         """Paint this component with the LIFX theme an effect name stands for."""
         key = theme_effects().get(effect)
         if key is None:
             msg = f"Unknown effect {effect!r}; choose one of this light's effects"
             raise ServiceValidationError(msg)
+        theme = ThemeLibrary.get(key)
+        if ATTR_BRIGHTNESS in kwargs:
+            # The library paints a theme at the theme's own brightness, so render
+            # it here and scale it to the requested one
+            colors = scale_zones(
+                theme_zones(self._device, self._component, theme),
+                hsbk_changes(**{ATTR_BRIGHTNESS: kwargs[ATTR_BRIGHTNESS]}),
+            )
+            await self._async_command(f"turn_{self._component}_on", colors, duration)
+            return
         await self._async_command(
-            f"apply_{self._component}_theme",
-            ThemeLibrary.get(key),
-            duration,
-            power_on=True,
+            f"apply_{self._component}_theme", theme, duration, power_on=True
         )
 
     async def _async_command(

@@ -16,6 +16,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.event import async_call_later
 from lifx import HSBK, MirrorLight
 from lifx.theme import ThemeLibrary
+from lifx.theme.generators import MatrixGenerator
 
 from .const import DEFAULT_KELVIN, LIFX_DOMAIN, MIRROR_WIDTH, STATE_SETTLE_DELAY
 
@@ -168,6 +169,21 @@ def gradient_zones(positions: tuple[int, ...], stops: list[HSBK]) -> list[HSBK]:
         index = min(int(along), len(stops) - 2)
         zones.append(_blend(stops[index], stops[index + 1], along - index))
     return zones
+
+
+def theme_zones(device: MirrorLight, component: str, theme: Theme) -> list[HSBK]:
+    """
+    Render a theme over the Mirror's matrix and pick one light's zones from it.
+
+    This is what the library does when it applies a theme, done here so the
+    colours can be rescaled to a requested brightness before they are sent.
+    """
+    layout = device.layout
+    generator = MatrixGenerator([((0, 0), (layout.width, layout.height))])
+    rendered = generator.get_theme_colors(theme)[0]
+    return [
+        rendered[position] for position in getattr(device, f"{component}_positions")
+    ]
 
 
 def segment_zones(

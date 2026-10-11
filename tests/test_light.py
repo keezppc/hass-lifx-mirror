@@ -411,6 +411,23 @@ async def test_choosing_an_effect_paints_the_theme_on_this_light(
 
 
 @pytest.mark.asyncio
+async def test_an_effect_with_brightness_is_scaled_to_it(fake_hass: FakeHass) -> None:
+    """A theme comes up at the requested brightness, not at its own."""
+    coordinator = _coordinator(front=[WARM], back=[GREEN])
+    coordinator.device.layout = SimpleNamespace(width=4, height=13)
+    coordinator.device.back_positions = tuple(range(0, 50, 2))
+    entity = LIFXMirrorLight(coordinator, COMPONENT_BACK)
+
+    await entity.async_turn_on(**{ATTR_EFFECT: "Evening", ATTR_BRIGHTNESS: 51})
+    await fake_hass.drain()
+
+    sent = coordinator.device.turn_back_on.await_args.args[0]
+    assert len(sent) == 25
+    assert max(c.brightness for c in sent) == pytest.approx(0.2)
+    coordinator.device.apply_back_theme.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_an_unknown_effect_is_refused() -> None:
     """An effect outside the list is an error and nothing is sent."""
     coordinator = _coordinator(front=[WARM], back=[GREEN])

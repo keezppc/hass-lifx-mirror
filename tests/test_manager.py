@@ -525,6 +525,23 @@ async def test_restore_puts_back_the_gradient_after_a_flash(registry) -> None:
 
 
 @pytest.mark.asyncio
+async def test_restore_of_a_component_with_nothing_lit_sends_no_colors(
+    registry,
+) -> None:
+    """The library rejects all-dark colors, so a dark light is turned off bare."""
+    manager, coordinator = _registered_manager(registry)
+    # No stored colors to fall back on, as seen on a real Mirror
+    _show(coordinator, front=[WARM], back=[UNLIT_GREEN], stored_back=None)
+    await manager.async_snapshot(SimpleNamespace(data={"device_id": ["dev"]}))
+
+    await manager.async_restore(
+        SimpleNamespace(data={"device_id": ["dev"], "transition": 0.0})
+    )
+
+    coordinator.device.turn_back_off.assert_awaited_once_with(None, duration=0.0)
+
+
+@pytest.mark.asyncio
 async def test_restore_lights_before_it_darkens(registry) -> None:
     """The lit component is sent first, so the Mirror never blinks off."""
     manager, coordinator = _registered_manager(registry)

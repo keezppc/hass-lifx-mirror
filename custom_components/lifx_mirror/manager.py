@@ -397,8 +397,15 @@ class LIFXMirrorManager:
         try:
             for component, saved in order:
                 action = "on" if saved.is_on else "off"
+                # The library rejects colors that are all dark, and a component
+                # that was dark has nothing to remember
+                colors = (
+                    saved.colors
+                    if saved.colors and any(c.brightness > 0 for c in saved.colors)
+                    else None
+                )
                 await getattr(device, f"turn_{component}_{action}")(
-                    saved.colors, duration=transition
+                    colors, duration=transition
                 )
         except LifxError as err:
             msg = f"{coordinator.data.label} did not accept the command: {err}"
