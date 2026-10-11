@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from functools import cache
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from homeassistant.components.light import (
@@ -14,6 +15,7 @@ from homeassistant.core import callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.event import async_call_later
 from lifx import HSBK, MirrorLight
+from lifx.theme import ThemeLibrary
 
 from .const import DEFAULT_KELVIN, LIFX_DOMAIN, MIRROR_WIDTH, STATE_SETTLE_DELAY
 
@@ -22,6 +24,7 @@ if TYPE_CHECKING:
 
     from homeassistant.components.lifx.coordinator import LIFXUpdateCoordinator
     from homeassistant.core import HomeAssistant
+    from lifx.theme import Theme
 
 
 class HSBKChanges(TypedDict):
@@ -41,6 +44,32 @@ def find_mirror_coordinators(hass: HomeAssistant) -> list[LIFXUpdateCoordinator]
         if isinstance(getattr(coordinator, "device", None), MirrorLight):
             coordinators.append(coordinator)
     return coordinators
+
+
+@cache
+def theme_effects() -> dict[str, str]:
+    """Return the LIFX themes offered as light effects, from display name to key."""
+    effects: dict[str, str] = {}
+    for key in ThemeLibrary.get_available_themes():
+        theme = ThemeLibrary.get(key)
+        # Retired themes duplicate a current one, so they would only clutter the list
+        if theme.disposition in ("deprecated", "renamed"):
+            continue
+        effects[theme.name or key] = key
+    return dict(sorted(effects.items(), key=lambda item: item[0].casefold()))
+
+
+def find_theme(name: str) -> Theme | None:
+    """Return the LIFX theme with this key or display name, ignoring case."""
+    try:
+        return ThemeLibrary.get(name)
+    except KeyError:
+        pass
+    wanted = name.strip().casefold()
+    for display_name, key in theme_effects().items():
+        if display_name.casefold() == wanted:
+            return ThemeLibrary.get(key)
+    return None
 
 
 def normalize_serial(value: str) -> str:

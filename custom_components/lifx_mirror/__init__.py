@@ -11,12 +11,16 @@ from homeassistant.helpers.start import async_at_started
 from .const import (
     DISCOVERY_INTERVAL,
     DOMAIN,
+    SERVICE_LIFX_MIRROR_RESTORE,
     SERVICE_LIFX_MIRROR_SET_STATE,
     SERVICE_LIFX_MIRROR_SET_ZONES,
+    SERVICE_LIFX_MIRROR_SNAPSHOT,
 )
 from .manager import (
+    RESTORE_SCHEMA,
     SET_STATE_SCHEMA,
     SET_ZONES_SCHEMA,
+    SNAPSHOT_SCHEMA,
     LIFXMirrorConfigEntry,
     LIFXMirrorManager,
 )
@@ -47,6 +51,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: LIFXMirrorConfigEntry) -
         manager.async_set_zones,
         schema=SET_ZONES_SCHEMA,
     )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_LIFX_MIRROR_SNAPSHOT,
+        manager.async_snapshot,
+        schema=SNAPSHOT_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_LIFX_MIRROR_RESTORE,
+        manager.async_restore,
+        schema=RESTORE_SCHEMA,
+    )
 
     # Core LIFX entries may finish loading after this one, so look again once
     # Home Assistant has started and then at a regular interval
@@ -63,4 +79,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: LIFXMirrorConfigEntry) 
     if unloaded := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.services.async_remove(DOMAIN, SERVICE_LIFX_MIRROR_SET_STATE)
         hass.services.async_remove(DOMAIN, SERVICE_LIFX_MIRROR_SET_ZONES)
+        hass.services.async_remove(DOMAIN, SERVICE_LIFX_MIRROR_SNAPSHOT)
+        hass.services.async_remove(DOMAIN, SERVICE_LIFX_MIRROR_RESTORE)
     return unloaded

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 import voluptuous as vol
@@ -11,8 +12,7 @@ from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
-from lifx import HSBK, LifxError, MirrorLight
-from lifx.theme import ThemeLibrary
+from lifx import HSBK, LifxError, MirrorLight, MirrorLightState
 
 from .const import (
     _LOGGER,
@@ -38,9 +38,11 @@ from .const import (
 from .util import (
     async_schedule_refresh_after_command,
     find_mirror_coordinators,
+    find_theme,
     gradient_zones,
     normalize_serial,
     segment_zones,
+    theme_effects,
 )
 
 if TYPE_CHECKING:
@@ -114,6 +116,37 @@ SET_ZONES_SCHEMA = vol.All(
 )
 
 
+SNAPSHOT_SCHEMA = vol.Schema(
+    {vol.Required(ATTR_DEVICE_ID): vol.All(cv.ensure_list, [cv.string])}
+)
+
+RESTORE_SCHEMA = SNAPSHOT_SCHEMA.extend(
+    {
+        vol.Optional(ATTR_TRANSITION, default=0): vol.All(
+            vol.Coerce(float), vol.Range(min=0, max=3600)
+        ),
+    }
+)
+
+
+@dataclass(frozen=True)
+class ComponentSnapshot:
+    """What one component of a Mirror showed when a snapshot was taken."""
+
+    is_on: bool
+    # The zones while lit, or the colors held for the next turn-on while off
+    colors: list[HSBK] | None
+
+
+def _snapshot_component(state: MirrorLightState, component: str) -> ComponentSnapshot:
+    """Return the snapshot of one component from a Mirror's state."""
+    is_on = getattr(state, f"{component}_is_on")
+    colors = getattr(state, f"{component}_colors")
+    if not is_on and all(color.brightness == 0 for color in colors):
+        colors = getattr(state, f"stored_{component}_colors", None)
+    return ComponentSnapshot(is_on=is_on, colors=list(colors) if colors else None)
+
+
 def _hsbk(zone: dict[str, Any]) -> HSBK:
     """Return the color a service call's zone entry describes."""
     return HSBK(
@@ -146,6 +179,8 @@ class LIFXMirrorManager:
         self.hass = hass
         self.entry = entry
         self._coordinators: dict[str, LIFXUpdateCoordinator] = {}
+        # Kept in memory only, so snapshots do not survive a restart
+        self._snapshots: dict[str, dict[str, ComponentSnapshot]] = {}
         self._discovery_callback: Callable[[LIFXUpdateCoordinator], None] | None = None
 
     @property
@@ -249,12 +284,11 @@ class LIFXMirrorManager:
         component = data[ATTR_COMPONENT]
         theme = None
         if ATTR_THEME in data:
-            try:
-                theme = ThemeLibrary.get(data[ATTR_THEME])
-            except KeyError as err:
-                names = ", ".join(sorted(ThemeLibrary.get_available_themes()))
+            theme = find_theme(data[ATTR_THEME])
+            if theme is None:
+                names = ", ".join(theme_effects())
                 msg = f"Unknown theme {data[ATTR_THEME]!r}; choose one of: {names}"
-                raise ServiceValidationError(msg) from err
+                raise ServiceValidationError(msg)
 
         for device_id in data[ATTR_DEVICE_ID]:
             coordinator = self._coordinator_for_device(device_id)
@@ -311,6 +345,60 @@ class LIFXMirrorManager:
                     raise ServiceValidationError(msg)
                 await getattr(device, f"turn_{component}_on")(
                     colors, duration=transition
+                )
+        except LifxError as err:
+            msg = f"{coordinator.data.label} did not accept the command: {err}"
+            raise HomeAssistantError(msg) from err
+        async_schedule_refresh_after_command(self.hass, coordinator, transition)
+
+    async def async_snapshot(self, call: ServiceCall) -> None:
+        """Handle the snapshot service call."""
+        for device_id in call.data[ATTR_DEVICE_ID]:
+            coordinator = self._coordinator_for_device(device_id)
+            if coordinator is None:
+                _LOGGER.warning("No LIFX Mirror found for device ID %s", device_id)
+                continue
+            # Read the Mirror now, so a change made since the last poll is kept
+            await coordinator.async_refresh()
+            if not coordinator.last_update_success:
+                msg = f"Could not read {coordinator.data.label} to take a snapshot"
+                raise HomeAssistantError(msg)
+            state = cast("MirrorLightState", coordinator.data)
+            self._snapshots[normalize_serial(state.serial)] = {
+                component: _snapshot_component(state, component)
+                for component in (COMPONENT_FRONT, COMPONENT_BACK)
+            }
+
+    async def async_restore(self, call: ServiceCall) -> None:
+        """Handle the restore service call."""
+        transition = call.data[ATTR_TRANSITION]
+        for device_id in call.data[ATTR_DEVICE_ID]:
+            coordinator = self._coordinator_for_device(device_id)
+            if coordinator is None:
+                _LOGGER.warning("No LIFX Mirror found for device ID %s", device_id)
+                continue
+            snapshot = self._snapshots.get(normalize_serial(coordinator.data.serial))
+            if snapshot is None:
+                msg = f"No snapshot of {coordinator.data.label} has been taken"
+                raise ServiceValidationError(msg)
+            await self._async_restore(coordinator, snapshot, transition)
+
+    async def _async_restore(
+        self,
+        coordinator: LIFXUpdateCoordinator,
+        snapshot: dict[str, ComponentSnapshot],
+        transition: float,
+    ) -> None:
+        """Put both components of one Mirror back as a snapshot recorded them."""
+        device = cast("MirrorLight", coordinator.device)
+        # Light first and darken after, as set_state does; darkening the second
+        # component when both were off powers the Mirror off
+        order = sorted(snapshot.items(), key=lambda item: not item[1].is_on)
+        try:
+            for component, saved in order:
+                action = "on" if saved.is_on else "off"
+                await getattr(device, f"turn_{component}_{action}")(
+                    saved.colors, duration=transition
                 )
         except LifxError as err:
             msg = f"{coordinator.data.label} did not accept the command: {err}"

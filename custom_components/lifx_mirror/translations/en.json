@@ -79,7 +79,7 @@
         },
         "theme": {
           "name": "Theme",
-          "description": "Name of a LIFX theme, such as evening or autumn."
+          "description": "A LIFX theme, by the name shown in the light's effect list (such as Warm Ember) or its key (such as warm_ember)."
         },
         "transition": {
           "name": "Transition",
@@ -88,6 +88,30 @@
         "segments": {
           "name": "Segments",
           "description": "Stretches of the Mirror's length, each with a start and end in percent (0 is the end opposite the buttons, 100 the end with them) and a color. Zones outside every segment are turned dark."
+        }
+      }
+    },
+    "snapshot": {
+      "name": "Snapshot",
+      "description": "Remember every zone of both lights, and whether each is on, so restore can put them back. Snapshots are kept until Home Assistant restarts.",
+      "fields": {
+        "device_id": {
+          "name": "Devices",
+          "description": "List of LIFX Mirror devices to target."
+        }
+      }
+    },
+    "restore": {
+      "name": "Restore",
+      "description": "Put both lights back as the last snapshot of each Mirror recorded them.",
+      "fields": {
+        "device_id": {
+          "name": "Devices",
+          "description": "List of LIFX Mirror devices to target."
+        },
+        "transition": {
+          "name": "Transition",
+          "description": "Duration in seconds to transition to the restored state."
         }
       }
     }
