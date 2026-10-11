@@ -118,6 +118,36 @@ data:
 Each color takes `hue` (0–360), `saturation` (%), `brightness` (%) and `kelvin`, with the
 same defaults as `set_state`.
 
+## Actions: `lifx_mirror.snapshot` and `lifx_mirror.restore`
+
+`snapshot` remembers every zone of both lights and whether each is on. `restore` puts them
+back, gradients included, which a scene can't do. Use them around a temporary change:
+
+```yaml
+sequence:
+  - action: lifx_mirror.snapshot
+    data:
+      device_id: 0123456789abcdef0123456789abcdef
+  - action: lifx_mirror.set_state
+    data:
+      device_id: 0123456789abcdef0123456789abcdef
+      frontlight_hue: 0
+      frontlight_saturation: 100
+      backlight_hue: 0
+      backlight_saturation: 100
+  - delay: 3
+  - action: lifx_mirror.restore
+    data:
+      device_id: 0123456789abcdef0123456789abcdef
+      transition: 1
+```
+
+- A light that was off goes back off, and still comes back in its earlier colors the next
+  time it's turned on. If both were off, the Mirror is powered off.
+- Each Mirror keeps one snapshot, replaced by the next `snapshot` call. `restore` can be
+  called more than once.
+- Snapshots live in memory and are lost when Home Assistant restarts.
+
 ## WiFi and Thread
 
 The integration reads and sets only colors and power, nothing specific to the radio, so it does

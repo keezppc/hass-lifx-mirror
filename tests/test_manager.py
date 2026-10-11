@@ -471,3 +471,141 @@ async def test_set_zones_takes_a_display_name_with_punctuation(registry) -> None
 
     theme = coordinator.device.apply_front_theme.await_args.args[0]
     assert theme.palette_equals(ThemeLibrary.get("santas_candy"))
+
+
+WARM = HSBK(hue=30, saturation=0, brightness=0.5, kelvin=2700)
+GREEN = HSBK(hue=120, saturation=1, brightness=1, kelvin=3500)
+UNLIT_GREEN = GREEN.replace(brightness=0)
+
+
+def _show(
+    coordinator: SimpleNamespace,
+    *,
+    front: list[HSBK],
+    back: list[HSBK],
+    stored_back: list[HSBK] | None = None,
+    power: bool = True,
+) -> None:
+    """Make the coordinator's next read report these colors."""
+    coordinator.data = SimpleNamespace(
+        serial=SERIAL,
+        label="Mirror",
+        front_colors=front,
+        back_colors=back,
+        front_is_on=power and any(c.brightness > 0 for c in front),
+        back_is_on=power and any(c.brightness > 0 for c in back),
+        stored_front_colors=None,
+        stored_back_colors=stored_back,
+    )
+    coordinator.last_update_success = True
+
+
+@pytest.mark.asyncio
+async def test_restore_puts_back_the_gradient_after_a_flash(registry) -> None:
+    """A snapshot brings back each zone of a lit light exactly."""
+    manager, coordinator = _registered_manager(registry)
+    gradient = [WARM, WARM.replace(brightness=0.2)]
+    _show(coordinator, front=gradient, back=[UNLIT_GREEN], stored_back=[GREEN])
+    await manager.async_snapshot(SimpleNamespace(data={"device_id": ["dev"]}))
+    coordinator.async_refresh.assert_awaited_once()
+
+    # The doorbell flash
+    _show(coordinator, front=[GREEN], back=[GREEN])
+    await manager.async_restore(
+        SimpleNamespace(data={"device_id": ["dev"], "transition": 1.0})
+    )
+    await manager.hass.drain()
+
+    device = coordinator.device
+    device.turn_front_on.assert_awaited_once_with(gradient, duration=1.0)
+    # The back was off, so it goes off again, keeping its colors for the next turn-on
+    device.turn_back_off.assert_awaited_once_with([GREEN], duration=1.0)
+    device.turn_back_on.assert_not_awaited()
+    coordinator.async_request_refresh.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_restore_lights_before_it_darkens(registry) -> None:
+    """The lit component is sent first, so the Mirror never blinks off."""
+    manager, coordinator = _registered_manager(registry)
+    _show(coordinator, front=[UNLIT_GREEN], back=[WARM])
+    await manager.async_snapshot(SimpleNamespace(data={"device_id": ["dev"]}))
+
+    order = MagicMock()
+    order.attach_mock(coordinator.device.turn_back_on, "back_on")
+    order.attach_mock(coordinator.device.turn_front_off, "front_off")
+    await manager.async_restore(
+        SimpleNamespace(data={"device_id": ["dev"], "transition": 0.0})
+    )
+
+    assert [name for name, *_ in order.mock_calls] == ["back_on", "front_off"]
+
+
+@pytest.mark.asyncio
+async def test_restore_of_a_powered_off_mirror_turns_both_off(registry) -> None:
+    """A Mirror that was off is darkened on both sides, which powers it off."""
+    manager, coordinator = _registered_manager(registry)
+    _show(coordinator, front=[WARM], back=[GREEN], power=False)
+    await manager.async_snapshot(SimpleNamespace(data={"device_id": ["dev"]}))
+
+    await manager.async_restore(
+        SimpleNamespace(data={"device_id": ["dev"], "transition": 0.0})
+    )
+
+    device = coordinator.device
+    device.turn_front_off.assert_awaited_once_with([WARM], duration=0.0)
+    device.turn_back_off.assert_awaited_once_with([GREEN], duration=0.0)
+    device.turn_front_on.assert_not_awaited()
+    device.turn_back_on.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_restore_without_a_snapshot_is_refused(registry) -> None:
+    """Restoring a Mirror that was never snapshotted is an error."""
+    manager, coordinator = _registered_manager(registry)
+
+    with pytest.raises(ServiceValidationError, match="No snapshot of Mirror"):
+        await manager.async_restore(
+            SimpleNamespace(data={"device_id": ["dev"], "transition": 0.0})
+        )
+
+    coordinator.device.turn_front_on.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_snapshot_refuses_a_mirror_it_cannot_read(registry) -> None:
+    """A failed read is reported rather than saving stale colors."""
+    manager, coordinator = _registered_manager(registry)
+    _show(coordinator, front=[WARM], back=[GREEN])
+    coordinator.last_update_success = False
+
+    with pytest.raises(HomeAssistantError, match="Could not read Mirror"):
+        await manager.async_snapshot(SimpleNamespace(data={"device_id": ["dev"]}))
+
+
+@pytest.mark.asyncio
+async def test_restore_reports_a_device_failure(registry) -> None:
+    """A Mirror that rejects the restore is reported to the caller."""
+    manager, coordinator = _registered_manager(registry)
+    _show(coordinator, front=[WARM], back=[GREEN])
+    await manager.async_snapshot(SimpleNamespace(data={"device_id": ["dev"]}))
+    coordinator.device.turn_front_on.side_effect = LifxError("no reply")
+
+    with pytest.raises(HomeAssistantError, match="did not accept"):
+        await manager.async_restore(
+            SimpleNamespace(data={"device_id": ["dev"], "transition": 0.0})
+        )
+
+
+@pytest.mark.asyncio
+async def test_snapshot_skips_devices_that_are_not_mirrors(registry, caplog) -> None:
+    """An unknown device is reported in the log and nothing is read."""
+    registry["dev"] = SimpleNamespace(identifiers={("hue", "abc")})
+    coordinator = _coordinator()
+    manager, _ = _manager(coordinator)
+    manager.async_scan()
+
+    await manager.async_snapshot(SimpleNamespace(data={"device_id": ["dev"]}))
+
+    assert "No LIFX Mirror found" in caplog.text
+    coordinator.async_refresh.assert_not_awaited()

@@ -34,6 +34,8 @@ DISCOVERY_INTERVAL = timedelta(minutes=5)
 
 SERVICE_LIFX_MIRROR_SET_STATE = "set_state"
 SERVICE_LIFX_MIRROR_SET_ZONES = "set_zones"
+SERVICE_LIFX_MIRROR_SNAPSHOT = "snapshot"
+SERVICE_LIFX_MIRROR_RESTORE = "restore"
 
 ATTR_COMPONENT = "component"
 ATTR_COLORS = "colors"

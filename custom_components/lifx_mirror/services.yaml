@@ -119,3 +119,29 @@ set_zones:
           min: 0
           max: 3600
           unit_of_measurement: seconds
+
+snapshot:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: lifx_mirror
+          multiple: true
+
+restore:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: lifx_mirror
+          multiple: true
+    transition:
+      default: 0
+      example: 1
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: seconds
