@@ -183,3 +183,17 @@ uv run pytest
 
 The tests use plain fakes and do not need a Mirror or a running Home Assistant. GitHub
 Actions runs the same checks on every pull request and on each push to `main`.
+
+### Releasing
+
+Set `version` in `custom_components/lifx_mirror/manifest.json`, commit it to `main`, then
+push a matching tag:
+
+```bash
+git tag -a v2026.10.2 -m 2026.10.2
+git push origin v2026.10.2
+```
+
+The Release workflow checks the tag matches the manifest, runs the tests and publishes a
+GitHub release with generated notes, which HACS offers as the update. To release a tag that
+already exists, run the workflow by hand from the Actions tab and give it the tag.
